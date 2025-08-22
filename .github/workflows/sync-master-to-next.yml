@@ -42,7 +42,13 @@ jobs:
       - name: Fetch last merged PR into ${{ env.TARGET_BRANCH }}
         id: last_pr
         run: |
-          LAST_PR=$(gh pr list --base ${{ env.TARGET_BRANCH }} --state merged --sort merged --limit 1 --json number -q '.[0].number')
+          LAST_PR=$(gh pr list \
+            --base ${{ env.TARGET_BRANCH }} \
+            --state merged \
+            --limit 30 \
+            --json number,mergedAt \
+            -q 'sort_by(.mergedAt)[-1].number'
+          )
           echo "LAST_PR=$LAST_PR" >> $GITHUB_ENV
           echo "Last merged PR into ${{ env.TARGET_BRANCH }}: #$LAST_PR"
 
@@ -64,8 +70,8 @@ jobs:
               continue
             fi
 
-            if echo "$FILES_CHANGED" | grep -q "^.github/workflows/sync-master-to-next.yml$"; then
-              echo "Skipping $commit because it modifies the sync workflow"
+            if echo "$FILES_CHANGED" | grep -q "^.github/workflows/"; then
+              echo "Skipping $commit because it modifies workflow files"
               continue
             fi
 
