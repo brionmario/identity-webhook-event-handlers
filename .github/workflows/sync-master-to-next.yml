@@ -11,9 +11,10 @@ permissions:
   pull-requests: write
 
 env:
+  BASE_BRANCH: master       # configurable per repo
   TARGET_BRANCH: next
   SYNC_BRANCH_PREFIX: sync-ghcli-
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # required for gh CLI
 
 jobs:
   sync:
@@ -22,7 +23,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # fetch full history for cherry-pick
+          fetch-depth: 0
 
       - name: Set up Git
         run: |
@@ -38,20 +39,14 @@ jobs:
           echo "Created sync branch: $SYNC_BRANCH"
 
       - name: Create and switch to sync branch
-        run: git checkout -b $SYNC_BRANCH ${{ github.ref }}
+        run: git checkout -b $SYNC_BRANCH ${{ env.BASE_BRANCH }}
 
-      - name: Fetch last merged PR into ${{ env.TARGET_BRANCH }}
+      - name: Fetch last merged PR into ${{ env.BASE_BRANCH }}
         id: last_pr
         run: |
-          LAST_PR=$(gh pr list \
-            --base ${{ env.TARGET_BRANCH }} \
-            --state merged \
-            --limit 30 \
-            --json number,mergedAt \
-            -q 'sort_by(.mergedAt)[-1].number'
-          )
+          LAST_PR=$(gh pr list --base ${{ env.BASE_BRANCH }} --state merged --limit 100 --json number,mergedAt -q 'sort_by(.[], &.mergedAt)[-1].number')
           echo "LAST_PR=$LAST_PR" >> $GITHUB_ENV
-          echo "Last merged PR into ${{ env.TARGET_BRANCH }}: #$LAST_PR"
+          echo "Last merged PR into ${{ env.BASE_BRANCH }}: #$LAST_PR"
 
       - name: Get commits from last PR
         id: commits
@@ -72,7 +67,7 @@ jobs:
             fi
 
             if echo "$FILES_CHANGED" | grep -q "^.github/workflows/"; then
-              echo "Skipping $commit because it modifies workflow files"
+              echo "Skipping $commit because it modifies a workflow"
               continue
             fi
 
@@ -96,8 +91,8 @@ jobs:
             echo "PR_CREATED=false" >> $GITHUB_ENV
           else
             gh pr create \
-              --title "Sync master → ${{ env.TARGET_BRANCH }}" \
-              --body "Automated PR from GitHub Actions to sync master → ${{ env.TARGET_BRANCH }}" \
+              --title "Sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
+              --body "Automated PR from GitHub Actions to sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
               --base ${{ env.TARGET_BRANCH }} \
               --head $SYNC_BRANCH
             echo "PR_CREATED=true" >> $GITHUB_ENV
