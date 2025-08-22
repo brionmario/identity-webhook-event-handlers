@@ -105,8 +105,9 @@ jobs:
           if [ -z "$COMMITS_ON_BRANCH" ]; then
             echo "No commits to sync. Skipping PR creation."
           else
-            # Get the last merged PR number on BASE_BRANCH
+            # Get the last merged PR number and title on BASE_BRANCH
             LAST_PR=$(gh pr list --base ${{ env.BASE_BRANCH }} --state merged --limit 1 --json number -q '.[0].number')
+            PR_TITLE=$(gh pr view $LAST_PR --json title -q '.title')
 
             # Prepare PR body
             PR_BODY="🤖 **Auto-sync from ${{ env.BASE_BRANCH }}**
@@ -130,7 +131,7 @@ jobs:
               gh pr create \
                 --base "${{ env.TARGET_BRANCH }}" \
                 --head "$SYNC_BRANCH" \
-                --title "[Sync][${{ env.BASE_BRANCH }} -> ${{ env.TARGET_BRANCH }}][#${LAST_PR}]" \
+                --title "[Sync][${{ env.BASE_BRANCH }} -> ${{ env.TARGET_BRANCH }}][#${LAST_PR}]: $PR_TITLE" \
                 --body "$PR_BODY"
             fi
           fi
