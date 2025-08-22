@@ -44,16 +44,19 @@ jobs:
       - name: Fetch last merged PR into ${{ env.BASE_BRANCH }}
         id: last_pr
         run: |
+          # List the last 100 merged PRs into the base branch, sorted by mergedAt descending
           LAST_PR=$(gh pr list \
             --base ${{ env.BASE_BRANCH }} \
             --state merged \
             --limit 100 \
             --json number,mergedAt \
-            -q '.[] | "\(.mergedAt)\t\(.number)"' | sort | tail -n 1 | cut -f2)
+            -q 'sort_by(.[]; .mergedAt) | .[-1].number')
+
           if [ -z "$LAST_PR" ]; then
             echo "No merged PRs found in ${{ env.BASE_BRANCH }}. Exiting."
             exit 0
           fi
+
           echo "LAST_PR=$LAST_PR" >> $GITHUB_ENV
           echo "Last merged PR into ${{ env.BASE_BRANCH }}: #$LAST_PR"
 
