@@ -13,7 +13,7 @@ permissions:
 env:
   BASE_BRANCH: main       # configurable per repo
   TARGET_BRANCH: next
-  SYNC_BRANCH_PREFIX: sync-ghcli-
+  SYNC_BRANCH: sync/next
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # required for gh CLI
 
 jobs:
@@ -31,16 +31,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Determine new sync branch
-        id: branch
+      - name: Create or reset sync branch
         run: |
-          DATE=$(date +%s)
-          SYNC_BRANCH="${SYNC_BRANCH_PREFIX}${DATE}"
-          echo "SYNC_BRANCH=$SYNC_BRANCH" >> $GITHUB_ENV
-          echo "Created sync branch: $SYNC_BRANCH"
-
-      - name: Create and switch to sync branch
-        run: git checkout -b $SYNC_BRANCH ${{ env.BASE_BRANCH }}
+          git checkout ${{ env.BASE_BRANCH }}
+          git checkout -B "$SYNC_BRANCH"
 
       - name: Fetch last merged PR into ${{ env.BASE_BRANCH }}
         id: last_pr
@@ -95,31 +89,32 @@ jobs:
             git cherry-pick $commit || git cherry-pick --skip
           done
 
-      - name: Push sync branch
-        run: git push origin HEAD:$SYNC_BRANCH
+      - name: Push sync branch (force update)
+        run: git push origin HEAD:"$SYNC_BRANCH" --force
 
       - name: Fetch target branch
         run: git fetch origin $TARGET_BRANCH:$TARGET_BRANCH || true
 
-      - name: Create pull request if commits exist
-        id: pr
+      - name: Create or update pull request
         run: |
           COMMITS_ON_BRANCH=$(git log ${{ env.TARGET_BRANCH }}..HEAD --oneline || true)
           if [ -z "$COMMITS_ON_BRANCH" ]; then
             echo "No commits to sync. Skipping PR creation."
-            echo "PR_CREATED=false" >> $GITHUB_ENV
           else
-            gh pr create \
-              --title "Sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
-              --body "Automated PR from GitHub Actions to sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
+            EXISTING_PR=$(gh pr list \
               --base ${{ env.TARGET_BRANCH }} \
-              --head $SYNC_BRANCH
-            echo "PR_CREATED=true" >> $GITHUB_ENV
-          fi
+              --head "$SYNC_BRANCH" \
+              --state open \
+              --json number \
+              -q '.[0].number')
 
-      - name: Delete sync branch (always)
-        if: always()
-        run: |
-          echo "Deleting sync branch $SYNC_BRANCH from remote (even if previous steps failed)"
-          git push origin --delete $SYNC_BRANCH || true
-          git branch -D $SYNC_BRANCH || true
+            if [ -n "$EXISTING_PR" ]; then
+              echo "PR #$EXISTING_PR already exists. Updating branch."
+            else
+              gh pr create \
+                --title "Sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
+                --body "Automated PR from GitHub Actions to sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
+                --base ${{ env.TARGET_BRANCH }} \
+                --head "$SYNC_BRANCH"
+            fi
+          fi
