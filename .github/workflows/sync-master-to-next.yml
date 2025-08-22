@@ -11,9 +11,9 @@ permissions:
   pull-requests: write
 
 env:
-  BASE_BRANCH: main       # configurable per repo
+  BASE_BRANCH: main
   TARGET_BRANCH: next
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # required for gh CLI
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   sync:
@@ -108,6 +108,7 @@ jobs:
             # Get the last merged PR number and title on BASE_BRANCH
             LAST_PR=$(gh pr list --base ${{ env.BASE_BRANCH }} --state merged --limit 1 --json number -q '.[0].number')
             PR_TITLE=$(gh pr view $LAST_PR --json title -q '.title')
+            PR_AUTHOR=$(gh pr view $LAST_PR --json author -q '.author.login')
 
             # Prepare PR body
             PR_BODY="🤖 **Auto-sync from ${{ env.BASE_BRANCH }}**
@@ -115,6 +116,7 @@ jobs:
           This PR automatically syncs the changes from #${LAST_PR} to the \`${{ env.TARGET_BRANCH }}\` branch.
           
           **Original PR:** https://github.com/${{ github.repository }}/pull/${LAST_PR}
+          **Author:** @${PR_AUTHOR}
           **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
             # Check for existing open PR
