@@ -31,9 +31,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create or reset sync branch
+      - name: Create or reset sync branch from target
         run: |
-          git checkout ${{ env.BASE_BRANCH }}
+          git fetch origin $TARGET_BRANCH
+          git checkout $TARGET_BRANCH
           git checkout -B "$SYNC_BRANCH"
 
       - name: Fetch last merged PR into ${{ env.BASE_BRANCH }}
