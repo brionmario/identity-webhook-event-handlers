@@ -44,7 +44,12 @@ jobs:
       - name: Fetch last merged PR into ${{ env.BASE_BRANCH }}
         id: last_pr
         run: |
-          LAST_PR=$(gh pr list --base ${{ env.BASE_BRANCH }} --state merged --limit 100 --json number,mergedAt -q '.[].number | @tsv' | tail -n 1)
+          LAST_PR=$(gh pr list \
+            --base ${{ env.BASE_BRANCH }} \
+            --state merged \
+            --limit 100 \
+            --json number,mergedAt \
+            -q '.[].number | @tsv' | tail -n 1)
           echo "LAST_PR=$LAST_PR" >> $GITHUB_ENV
           echo "Last merged PR into ${{ env.BASE_BRANCH }}: #$LAST_PR"
 
