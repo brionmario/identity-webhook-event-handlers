@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 env:
-  BASE_BRANCH: master       # configurable per repo
+  BASE_BRANCH: main       # configurable per repo
   TARGET_BRANCH: next
   SYNC_BRANCH_PREFIX: sync-ghcli-
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # required for gh CLI
