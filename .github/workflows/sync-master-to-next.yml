@@ -28,11 +28,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Install GitHub CLI
-        uses: cli/gh-actions@v2
-        with:
-          version: latest
-
       - name: Determine new sync branch
         id: branch
         run: |
