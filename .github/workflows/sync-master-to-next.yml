@@ -1,121 +1,82 @@
-name: 🔄 Sync master to next (GH CLI)
+name: 🔄 Sync master to next
 
 on:
-  push:
-    branches:
-      - master
-      - main
+  pull_request:
+    types: [closed]
+    branches: [master, main]
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 env:
-  BASE_BRANCH: main       # configurable per repo
+  BASE_BRANCH: main
   TARGET_BRANCH: next
   SYNC_BRANCH_PREFIX: sync-ghcli-
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # required for gh CLI
+  GH_TOKEN: ${{ secrets.PR_AUTOMATION_BOT_TOKEN }}
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout base branch
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ env.BASE_BRANCH }}
 
-      - name: Set up Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Install GitHub CLI
+        run: sudo apt-get install -y gh jq
 
-      - name: Determine new sync branch
-        id: branch
-        run: |
-          DATE=$(date +%s)
-          SYNC_BRANCH="${SYNC_BRANCH_PREFIX}${DATE}"
-          echo "SYNC_BRANCH=$SYNC_BRANCH" >> $GITHUB_ENV
-          echo "Created sync branch: $SYNC_BRANCH"
-
-      - name: Create and switch to sync branch
-        run: git checkout -b $SYNC_BRANCH ${{ env.BASE_BRANCH }}
-
-      - name: Fetch last merged PR into ${{ env.BASE_BRANCH }}
+      - name: Get last merged PR
         id: last_pr
         run: |
-          # List the last 100 merged PRs into the base branch, sorted by mergedAt descending
           LAST_PR=$(gh pr list \
-            --base ${{ env.BASE_BRANCH }} \
+            --base $BASE_BRANCH \
             --state merged \
-            --limit 100 \
-            --json number,mergedAt \
-            -q '.[].number' | tail -n 1)
+            --limit 1 \
+            --sort merged_at \
+            --json number \
+            -q '.[0].number')
 
           if [ -z "$LAST_PR" ]; then
-            echo "No merged PRs found in ${{ env.BASE_BRANCH }}. Exiting."
+            echo "No merged PRs found. Exiting."
             exit 0
           fi
 
           echo "LAST_PR=$LAST_PR" >> $GITHUB_ENV
-          echo "Last merged PR into ${{ env.BASE_BRANCH }}: #$LAST_PR"
+          echo "Last merged PR: $LAST_PR"
 
       - name: Get commits from last PR
-        id: commits
         run: |
           COMMITS=$(gh pr view $LAST_PR --json commits -q '.commits[].oid')
+
           if [ -z "$COMMITS" ]; then
             echo "No commits found in PR #$LAST_PR. Exiting."
             exit 0
           fi
+
           echo "COMMITS=$COMMITS" >> $GITHUB_ENV
           echo "Commits to consider: $COMMITS"
 
-      - name: Cherry-pick commits (skip [skip ci], workflow files, pom.xml only)
+      - name: Prepare sync branch
         run: |
+          SYNC_BRANCH=${SYNC_BRANCH_PREFIX}$(date +%s)
+          echo "SYNC_BRANCH=$SYNC_BRANCH" >> $GITHUB_ENV
+
+          git fetch origin $TARGET_BRANCH
+          git checkout -b $SYNC_BRANCH origin/$TARGET_BRANCH
+
           for commit in $COMMITS; do
-            MESSAGE=$(git log -1 --pretty=%B $commit)
-            FILES_CHANGED=$(git diff-tree --no-commit-id --name-only -r $commit)
-
-            if [[ "$MESSAGE" =~ \[skip\ ci\] ]]; then
-              echo "Skipping $commit because of [skip ci]"
-              continue
-            fi
-
-            if echo "$FILES_CHANGED" | grep -q "^.github/workflows/"; then
-              echo "Skipping $commit because it modifies a workflow"
-              continue
-            fi
-
-            if ! echo "$FILES_CHANGED" | grep -v -E "pom\.xml" | grep -q '.'; then
-              echo "Skipping $commit because it only modifies pom.xml files"
-              continue
-            fi
-
-            git cherry-pick $commit || git cherry-pick --skip
+            git cherry-pick $commit || (echo "Conflict while cherry-picking $commit" && exit 1)
           done
 
-      - name: Push sync branch
-        run: git push origin HEAD:$SYNC_BRANCH
+          git push origin $SYNC_BRANCH
 
-      - name: Create pull request if commits exist
-        id: pr
+      - name: Create PR
         run: |
-          COMMITS_ON_BRANCH=$(git log ${{ env.TARGET_BRANCH }}..HEAD --oneline)
-          if [ -z "$COMMITS_ON_BRANCH" ]; then
-            echo "No commits to sync. Skipping PR creation."
-            echo "PR_CREATED=false" >> $GITHUB_ENV
-          else
-            gh pr create \
-              --title "Sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
-              --body "Automated PR from GitHub Actions to sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
-              --base ${{ env.TARGET_BRANCH }} \
-              --head $SYNC_BRANCH
-            echo "PR_CREATED=true" >> $GITHUB_ENV
-
-      - name: Delete sync branch (always)
-        if: always()
-        run: |
-          echo "Deleting sync branch $SYNC_BRANCH from remote (even if previous steps failed)"
-          git push origin --delete $SYNC_BRANCH || true
-          git branch -D $SYNC_BRANCH || true
+          gh pr create \
+            --base $TARGET_BRANCH \
+            --head $SYNC_BRANCH \
+            --title "🔄 Sync $BASE_BRANCH to $TARGET_BRANCH" \
+            --body "This PR syncs the latest changes from $BASE_BRANCH to $TARGET_BRANCH."
