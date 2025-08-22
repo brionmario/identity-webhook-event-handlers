@@ -50,7 +50,7 @@ jobs:
             --state merged \
             --limit 100 \
             --json number,mergedAt \
-            -q 'sort_by(.[]; .mergedAt) | .[-1].number')
+            -q '.[].number' | tail -n 1)
 
           if [ -z "$LAST_PR" ]; then
             echo "No merged PRs found in ${{ env.BASE_BRANCH }}. Exiting."
