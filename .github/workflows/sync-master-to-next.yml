@@ -49,7 +49,7 @@ jobs:
             --state merged \
             --limit 100 \
             --json number,mergedAt \
-            -q '.[].number' | tail -n 1)
+            -q '.[] | "\(.mergedAt)\t\(.number)"' | sort | tail -n 1 | cut -f2)
           if [ -z "$LAST_PR" ]; then
             echo "No merged PRs found in ${{ env.BASE_BRANCH }}. Exiting."
             exit 0
@@ -61,6 +61,10 @@ jobs:
         id: commits
         run: |
           COMMITS=$(gh pr view $LAST_PR --json commits -q '.commits[].oid')
+          if [ -z "$COMMITS" ]; then
+            echo "No commits found in PR #$LAST_PR. Exiting."
+            exit 0
+          fi
           echo "COMMITS=$COMMITS" >> $GITHUB_ENV
           echo "Commits to consider: $COMMITS"
 
