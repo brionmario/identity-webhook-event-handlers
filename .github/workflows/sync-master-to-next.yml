@@ -13,7 +13,6 @@ permissions:
 env:
   BASE_BRANCH: main       # configurable per repo
   TARGET_BRANCH: next
-  SYNC_BRANCH: sync/next
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # required for gh CLI
 
 jobs:
@@ -33,6 +32,10 @@ jobs:
 
       - name: Create or reset sync branch from target
         run: |
+          # Create dynamic sync branch name
+          SYNC_BRANCH="sync-to-${{ env.TARGET_BRANCH }}-${{ github.run_id }}"
+          echo "SYNC_BRANCH=$SYNC_BRANCH" >> $GITHUB_ENV
+          
           git fetch origin $TARGET_BRANCH
           git checkout $TARGET_BRANCH
           git checkout -B "$SYNC_BRANCH"
