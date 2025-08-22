@@ -115,6 +115,7 @@ jobs:
               --base ${{ env.TARGET_BRANCH }} \
               --head $SYNC_BRANCH
             echo "PR_CREATED=true" >> $GITHUB_ENV
+          fi
 
       - name: Delete sync branch (always)
         if: always()
