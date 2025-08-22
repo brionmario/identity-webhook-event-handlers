@@ -102,8 +102,20 @@ jobs:
           if [ -z "$COMMITS_ON_BRANCH" ]; then
             echo "No commits to sync. Skipping PR creation."
           else
+            # Get the last merged PR number on BASE_BRANCH
+            LAST_PR=$(gh pr list --base ${{ env.BASE_BRANCH }} --state merged --limit 1 --json number -q '.[0].number')
+
+            # Prepare PR body
+            PR_BODY="🤖 **Auto-sync from ${{ env.BASE_BRANCH }}**
+          
+          This PR automatically syncs the changes from #${LAST_PR} to the \`${{ env.TARGET_BRANCH }}\` branch.
+          
+          **Original PR:** https://github.com/${{ github.repository }}/pull/${LAST_PR}
+          **Workflow run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+            # Check for existing open PR
             EXISTING_PR=$(gh pr list \
-              --base ${{ env.TARGET_BRANCH }} \
+              --base "${{ env.TARGET_BRANCH }}" \
               --head "$SYNC_BRANCH" \
               --state open \
               --json number \
@@ -113,9 +125,9 @@ jobs:
               echo "PR #$EXISTING_PR already exists. Updating branch."
             else
               gh pr create \
-                --title "Sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
-                --body "Automated PR from GitHub Actions to sync ${{ env.BASE_BRANCH }} → ${{ env.TARGET_BRANCH }}" \
-                --base ${{ env.TARGET_BRANCH }} \
-                --head "$SYNC_BRANCH"
+                --base "${{ env.TARGET_BRANCH }}" \
+                --head "$SYNC_BRANCH" \
+                --title "[Sync][${{ env.BASE_BRANCH }} -> ${{ env.TARGET_BRANCH }}][#${LAST_PR}]" \
+                --body "$PR_BODY"
             fi
           fi
