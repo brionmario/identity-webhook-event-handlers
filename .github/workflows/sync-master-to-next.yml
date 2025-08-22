@@ -13,6 +13,7 @@ permissions:
 env:
   TARGET_BRANCH: next
   SYNC_BRANCH_PREFIX: sync-ghcli-
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   sync:
