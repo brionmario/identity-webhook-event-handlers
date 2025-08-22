@@ -1,9 +1,10 @@
-# .github/workflows/sync-master-to-next.yml
-name: 🔄 Sync PRs from master to next
+name: 🔄 Sync master to next (GH CLI)
 
 on:
   push:
-    branches: [master, main]
+    branches:
+      - master
+      - main
 
 permissions:
   contents: write
@@ -11,100 +12,97 @@ permissions:
 
 env:
   TARGET_BRANCH: next
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  SYNC_BRANCH_PREFIX: sync-ghcli-
 
 jobs:
-  sync_push:
+  sync:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # fetch full history for cherry-pick
 
-      - name: Configure Git
+      - name: Set up Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Get last commit
-        id: commit_info
+      - name: Install GitHub CLI
+        uses: cli/gh-actions@v2
+        with:
+          version: latest
+
+      - name: Determine new sync branch
+        id: branch
         run: |
-          LAST_COMMIT="${{ github.sha }}"
-          LAST_MESSAGE=$(git log -1 --pretty=%B $LAST_COMMIT)
-          echo "Last commit: $LAST_COMMIT"
-          echo "Message: $LAST_MESSAGE"
+          DATE=$(date +%s)
+          SYNC_BRANCH="${SYNC_BRANCH_PREFIX}${DATE}"
+          echo "SYNC_BRANCH=$SYNC_BRANCH" >> $GITHUB_ENV
+          echo "Created sync branch: $SYNC_BRANCH"
 
-          # Skip if last commit is a Jenkins release commit
-          if [[ "$LAST_MESSAGE" =~ ^"\[WSO2 Release\]" ]]; then
-            echo "Last commit is a Jenkins release commit. Skipping sync action."
-            exit 0
-          fi
+      - name: Create and switch to sync branch
+        run: git checkout -b $SYNC_BRANCH ${{ github.ref }}
 
-          echo "LAST_COMMIT=$LAST_COMMIT" >> $GITHUB_ENV
-
-      - name: Get commits since last push to target branch (excluding Jenkins)
-        id: commits_list
+      - name: Fetch last merged PR into ${{ env.TARGET_BRANCH }}
+        id: last_pr
         run: |
-          TARGET_BRANCH=${{ env.TARGET_BRANCH }}
-          BASE_BRANCH="${{ github.ref_name }}"
+          LAST_PR=$(gh pr list --base ${{ env.TARGET_BRANCH }} --state merged --sort merged --limit 1 --json number -q '.[0].number')
+          echo "LAST_PR=$LAST_PR" >> $GITHUB_ENV
+          echo "Last merged PR into ${{ env.TARGET_BRANCH }}: #$LAST_PR"
 
-          # Fetch target branch
-          git fetch origin $TARGET_BRANCH
+      - name: Get commits from last PR
+        id: commits
+        run: |
+          COMMITS=$(gh pr view $LAST_PR --json commits -q '.commits[].oid')
+          echo "COMMITS=$COMMITS" >> $GITHUB_ENV
+          echo "Commits to consider: $COMMITS"
 
-          # Get all commits from master/main since target branch
-          COMMITS=$(git log "origin/$TARGET_BRANCH..$BASE_BRANCH" --no-merges --pretty=format:"%H")
-
-          FILTERED_COMMITS=""
+      - name: Cherry-pick commits (skip [skip ci], workflow files, pom.xml only)
+        run: |
           for commit in $COMMITS; do
             MESSAGE=$(git log -1 --pretty=%B $commit)
-            if [[ "$MESSAGE" =~ ^"\[WSO2 Release\]" ]]; then
-              echo "Skipping Jenkins commit $commit: $MESSAGE"
+            FILES_CHANGED=$(git diff-tree --no-commit-id --name-only -r $commit)
+
+            if [[ "$MESSAGE" =~ \[skip\ ci\] ]]; then
+              echo "Skipping $commit because of [skip ci]"
               continue
             fi
-            FILTERED_COMMITS="$FILTERED_COMMITS $commit"
+
+            if echo "$FILES_CHANGED" | grep -q "^.github/workflows/sync-master-to-next.yml$"; then
+              echo "Skipping $commit because it modifies the sync workflow"
+              continue
+            fi
+
+            if ! echo "$FILES_CHANGED" | grep -v -E "pom\.xml" | grep -q '.'; then
+              echo "Skipping $commit because it only modifies pom.xml files"
+              continue
+            fi
+
+            git cherry-pick $commit || git cherry-pick --skip
           done
 
-          if [ -z "$FILTERED_COMMITS" ]; then
-            echo "No commits to sync after filtering. Exiting..."
-            exit 0
-          fi
+      - name: Push sync branch
+        run: git push origin HEAD:$SYNC_BRANCH
 
-          echo "PR_COMMITS=$FILTERED_COMMITS" >> $GITHUB_ENV
-
-      - name: Create sync branch and cherry-pick commits
+      - name: Create pull request if commits exist
+        id: pr
         run: |
-          SYNC_BRANCH="sync-${{ github.run_id }}-to-${{ env.TARGET_BRANCH }}"
+          COMMITS_ON_BRANCH=$(git log ${{ env.TARGET_BRANCH }}..HEAD --oneline)
+          if [ -z "$COMMITS_ON_BRANCH" ]; then
+            echo "No commits to sync. Skipping PR creation."
+            echo "PR_CREATED=false" >> $GITHUB_ENV
+          else
+            gh pr create \
+              --title "Sync master → ${{ env.TARGET_BRANCH }}" \
+              --body "Automated PR from GitHub Actions to sync master → ${{ env.TARGET_BRANCH }}" \
+              --base ${{ env.TARGET_BRANCH }} \
+              --head $SYNC_BRANCH
+            echo "PR_CREATED=true" >> $GITHUB_ENV
 
-          git checkout -b "$SYNC_BRANCH" "origin/${{ env.TARGET_BRANCH }}"
-
-          CONFLICTS=false
-          ANY_APPLIED=false
-          for commit in $PR_COMMITS; do
-            echo "Cherry-picking commit $commit..."
-            if ! git cherry-pick "$commit"; then
-              echo "::warning::Conflict detected on commit $commit"
-              CONFLICTS=true
-            else
-              ANY_APPLIED=true
-            fi
-          done
-
-          # Push the sync branch regardless of conflicts
-          git push origin "$SYNC_BRANCH" --force
-
-          # Build PR body safely
-          PR_BODY="🤖 **Auto-sync from $BASE_BRANCH**"$'\n'"This PR automatically syncs changes from \`$BASE_BRANCH\` to \`${{ env.TARGET_BRANCH }}\`."
-          
-          if [ "$CONFLICTS" = true ]; then
-            if [ "$ANY_APPLIED" = false ]; then
-              PR_BODY="$PR_BODY"$'\n\n'"⚠️ **All commits conflicted. Manual merge required.**"
-            else
-              PR_BODY="$PR_BODY"$'\n\n'"⚠️ **Some commits had conflicts. Manual resolution required for these changes.**"
-            fi
-          fi
-
-          # Create PR
-          gh pr create --base "${{ env.TARGET_BRANCH }}" --head "$SYNC_BRANCH" --title "[Sync][$BASE_BRANCH -> ${{ env.TARGET_BRANCH }}] Auto-sync" --body "$PR_BODY"
+      - name: Delete sync branch (always)
+        if: always()
+        run: |
+          echo "Deleting sync branch $SYNC_BRANCH from remote (even if previous steps failed)"
+          git push origin --delete $SYNC_BRANCH || true
+          git branch -D $SYNC_BRANCH || true
