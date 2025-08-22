@@ -49,7 +49,11 @@ jobs:
             --state merged \
             --limit 100 \
             --json number,mergedAt \
-            -q '.[].number | @tsv' | tail -n 1)
+            -q '.[].number' | tail -n 1)
+          if [ -z "$LAST_PR" ]; then
+            echo "No merged PRs found in ${{ env.BASE_BRANCH }}. Exiting."
+            exit 0
+          fi
           echo "LAST_PR=$LAST_PR" >> $GITHUB_ENV
           echo "Last merged PR into ${{ env.BASE_BRANCH }}: #$LAST_PR"
 
